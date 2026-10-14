@@ -64,7 +64,7 @@ Here `foo` becomes `slaw_int64(32)` and `bar` becomes `slaw_unt8(5)`.
 You can create that message in Plasmite and send it to Plasma:
 
 ```bash
-plasmite feed relay --data '{"descrips":["example"],"ingests":{"foo":32,"bar":{"type":"unt8","value":5}}}' |
+plasmite feed relay '{"meta":{"tags":[]},"data":{"descrips":["example"],"ingests":{"foo":32,"bar":{"type":"unt8","value":5}}}}' |
   plasticine to plasma-destination
 ```
 
