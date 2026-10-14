@@ -4,10 +4,10 @@ A small C tool for bridging live messages between
 [Plasma](https://github.com/plasma-hamper/plasma) and
 [Plasmite](https://github.com/sandover/plasmite).
 
-This is a sketch and a goodwill gesture toward the Plasma community.
-It uses libPlasma to read, construct, and deposit Proteins, and json-c to
-read and write JSON. Plasmite needs no changes.
-The pipe examples require Plasmite 1.2 or newer.
+Uses libPlasma to read, construct, and deposit Proteins, and json-c to
+read and write JSON. 
+
+Requires Plasmite 1.2 or newer.
 
 ## Build
 
@@ -31,29 +31,24 @@ PKG_CONFIG_PATH=/path/to/plasma/lib/pkgconfig make
 
 ## Pipes
 
-Create the destination pools first. Use a pool name or a Plasma pool URI
-with Plasticine. Add this directory to your PATH, or use `./plasticine`.
-
-To relay new Plasma messages into Plasmite:
+To relay a Plasma message stream into a Plasmite pool:
 
 ```bash
 plasmite pool create plasmite-destination
 plasticine from plasma-source | plasmite feed plasmite-destination
 ```
 
-To relay new Plasmite bridge messages into Plasma:
+To relay a Plasmite message stream into a Plasma pool:
 
 ```bash
 plasmite follow plasmite-source | plasticine to plasma-destination
 ```
 
-Each command watches for new messages from the moment it connects. These
-are separate, one-way bridges. Both keep running until you stop them.
-
 `from` waits for new Proteins and writes one complete Plasmite JSON message
 per line, flushing each line. `to` reads one message per line from stdin
 and deposits each Protein in Plasma. It writes no stdout. Errors go to stderr.
 Each destination pool assigns its own position and time.
+
 Avoid connecting the same two pools in a loop: Plasticine does not deduplicate
 messages or suppress echoes.
 
