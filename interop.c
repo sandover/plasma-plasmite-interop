@@ -11,7 +11,7 @@ typedef struct json_object json;
 
 noreturn void fail(const char *message)
 {
-    fprintf(stderr, "plasma interop: %s\n", message);
+    fprintf(stderr, "plasticine: %s\n", message);
     exit(1);
 }
 

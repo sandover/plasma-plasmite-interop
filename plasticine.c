@@ -1,9 +1,25 @@
 #include "interop.h"
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <limits.h>
 #include <string.h>
+
+static void from_pool(pool_hose hose)
+{
+    /* A new hose already starts after the newest Protein. */
+    for (;;) {
+        protein p;
+        check(pool_await_next(hose, POOL_WAIT_FOREVER, &p, NULL, NULL));
+        struct json_object *message = export_protein(p);
+        const char *line = json_object_to_json_string_ext(message,
+                                                        JSON_C_TO_STRING_PLAIN);
+        if (puts(line) == EOF || fflush(stdout) == EOF)
+            fail("cannot write stdout");
+        json_object_put(message);
+        protein_free(p);
+    }
+}
 
 static void reject_nul_escapes(const char *line)
 {
@@ -17,14 +33,8 @@ static void reject_nul_escapes(const char *line)
     }
 }
 
-int main(int argc, char **argv)
+static void to_pool(pool_hose hose)
 {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: plasma-import POOL\n");
-        return 1;
-    }
-    pool_hose hose;
-    check(pool_participate(argv[1], &hose, NULL));
     char *line = NULL;
     size_t capacity = 0;
     ssize_t length;
@@ -62,6 +72,25 @@ int main(int argc, char **argv)
         fail("cannot read stdin");
     free(line);
     json_tokener_free(parser);
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 2 && strcmp(argv[1], "--help") == 0) {
+        puts("Usage: plasticine from POOL | plasticine to POOL");
+        return 0;
+    }
+    if (argc != 3 ||
+        (strcmp(argv[1], "from") != 0 && strcmp(argv[1], "to") != 0)) {
+        fprintf(stderr, "Usage: plasticine from POOL | plasticine to POOL\n");
+        return 1;
+    }
+    pool_hose hose;
+    check(pool_participate(argv[2], &hose, NULL));
+    if (strcmp(argv[1], "from") == 0)
+        from_pool(hose);
+    else
+        to_pool(hose);
     check(pool_withdraw(hose));
     return 0;
 }

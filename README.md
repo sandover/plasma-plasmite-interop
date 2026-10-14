@@ -1,6 +1,6 @@
-# plasma-plasmite-interop
+# Plasticine
 
-Two small C tools for moving messages between
+A small C tool for bridging live messages between
 [Plasma](https://github.com/plasma-hamper/plasma) and
 [Plasmite](https://github.com/sandover/plasmite).
 
@@ -31,35 +31,30 @@ PKG_CONFIG_PATH=/path/to/plasma/lib/pkgconfig make
 
 ## Pipes
 
-Both pools must already exist. Use a pool name or a Plasma pool URI with
-either tool. Add this directory to your PATH, or use `./plasma-export`
-and `./plasma-import`.
+Create the destination pools first. Use a pool name or a Plasma pool URI
+with Plasticine. Add this directory to your PATH, or use `./plasticine`.
+
+To relay new Plasma messages into Plasmite:
 
 ```bash
-# Create the Plasmite pool.
-plasmite pool create relay
-
-# Copy Plasma's retained messages, then keep watching for new ones.
-plasma-export oldpool | plasmite feed relay
-
-# Copy the messages available now and exit.
-plasma-export oldpool --no-follow | plasmite feed relay
-
-# Send new bridge messages from Plasmite into Plasma.
-plasmite follow relay | plasma-import otherpool
+plasmite pool create plasmite-destination
+plasticine from plasma-source | plasmite feed plasmite-destination
 ```
 
-To copy a saved stream:
+To relay new Plasmite bridge messages into Plasma:
 
 ```bash
-plasma-export oldpool --no-follow > messages.jsonl
-plasma-import otherpool < messages.jsonl
+plasmite follow plasmite-source | plasticine to plasma-destination
 ```
 
-The exporter writes one complete Plasmite JSON message per line and flushes
-each line. The importer reads one message per line and writes no stdout.
-Errors go to stderr. Each destination pool assigns its own position and time.
-Avoid connecting the same two pools in a loop: the tools do not deduplicate
+Each command watches for new messages from the moment it connects. These
+are separate, one-way bridges. Both keep running until you stop them.
+
+`from` waits for new Proteins and writes one complete Plasmite JSON message
+per line, flushing each line. `to` reads one message per line from stdin
+and deposits each Protein in Plasma. It writes no stdout. Errors go to stderr.
+Each destination pool assigns its own position and time.
+Avoid connecting the same two pools in a loop: Plasticine does not deduplicate
 messages or suppress echoes.
 
 ## What the JSON means
@@ -75,10 +70,10 @@ You can create that message in Plasmite and send it to Plasma:
 
 ```bash
 plasmite feed relay --data '{"descrips":["example"],"ingests":{"foo":32,"bar":{"type":"unt8","value":5}}}' |
-  plasma-import otherpool
+  plasticine to plasma-destination
 ```
 
-`plasma-import` expects this bridge shape. It rejects other fields in `data`.
+`plasticine to` expects this bridge shape. It rejects other fields in `data`.
 It ignores Plasmite's tags, position, and time; Plasma descriptors live in
 `data.descrips`. An omitted `descrips` or `ingests` means an absent Plasma
 field. Present descriptors must decode to a list; present contents must
@@ -103,15 +98,15 @@ for example:
 {"type":"unt64","value":"18446744073709551615"}
 ```
 
-The importer checks integer ranges before calling Plasma's constructors.
+`plasticine to` checks integer ranges before calling Plasma's constructors.
 Float annotations accept JSON numbers; float32 follows C's rounding when
-converting from a double. The exporter preserves scalar number types using
+converting from a double. `plasticine from` preserves scalar number types using
 annotations where the plain JSON defaults would change the type.
 
 ## All Plasma types
 
 An object containing exactly `type` and `value` means an annotation.
-For every other Plasma type, the exporter uses:
+For every other Plasma type, `plasticine from` uses:
 
 ```json
 {"type":"slaw","value":"...hex bytes..."}
@@ -140,11 +135,11 @@ binary form delegates preservation to Plasma's own format.
 
 ## Sketch boundaries
 
-The importer rejects unknown annotations, out-of-range numbers, invalid
+`plasticine to` rejects unknown annotations, out-of-range numbers, invalid
 JSON, and NUL escapes in JSON strings. Use binary Slaw for NUL bytes;
-json-c would otherwise truncate object keys. The tools stop at the first
-error; earlier deposits remain. They have no retry service or test suite.
+json-c would otherwise truncate object keys. Plasticine stops at the first
+error; earlier deposits remain. It has no retry service or test suite.
 
-The source stays small: two command files, a readable JSON converter, a
+The source stays small: one command file, a readable JSON converter, a
 binary Slaw helper, and a Makefile. The intended next step is to try it
 together and agree on the conversion rules.
