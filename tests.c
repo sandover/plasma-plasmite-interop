@@ -78,7 +78,7 @@ static yyjson_mut_val *native_annotation(yyjson_mut_doc *document, bslaw value)
     for (long i = 0; i < length; i++) {
         int byte = fgetc(file);
         expect(byte != EOF, "binary fixture", "file ended early");
-        snprintf(hex + i * 2, 3, "%02x", (unsigned)byte);
+        snprintf(hex + i * 2, 3, "%02x", (unsigned)(unsigned char)byte);
     }
     expect(fclose(file) == 0, "binary fixture", "cannot close file");
     yyjson_mut_val *annotation = yyjson_mut_obj(document);
