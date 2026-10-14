@@ -19,20 +19,17 @@ static void expect(int condition, const char *name, const char *message)
     }
 }
 
-static struct json_object *parse(const char *text)
+static yyjson_doc *parse(const char *text)
 {
-    struct json_tokener *parser = json_tokener_new_ex(64);
-    expect(parser != NULL, "JSON", "cannot allocate parser");
-    struct json_object *value = json_tokener_parse_ex(parser, text, (int)strlen(text) + 1);
-    expect(json_tokener_get_error(parser) == json_tokener_success,
-           "JSON", json_tokener_error_desc(json_tokener_get_error(parser)));
-    json_tokener_free(parser);
-    return value;
+    return read_json(text, strlen(text));
 }
 
-static struct json_object *through_json(struct json_object *message)
+static yyjson_doc *through_json(yyjson_mut_doc *message)
 {
-    return parse(json_object_to_json_string_ext(message, JSON_C_TO_STRING_PLAIN));
+    char *text = write_json(message);
+    yyjson_doc *received = parse(text);
+    free(text);
+    return received;
 }
 
 static protein wrap_native(bslaw value)
@@ -41,18 +38,30 @@ static protein wrap_native(bslaw value)
                            slaw_map_inline_cl("v", value, NULL));
 }
 
-static struct json_object *wrap_json(struct json_object *value)
+static yyjson_mut_doc *new_document(void)
 {
-    struct json_object *message = parse("{\"data\":{\"descrips\":[\"type-test\"],\"ingests\":{}}}");
-    struct json_object *data, *ingests;
-    json_object_object_get_ex(message, "data", &data);
-    json_object_object_get_ex(data, "ingests", &ingests);
-    json_object_object_add(ingests, "v", value);
-    return message;
+    yyjson_mut_doc *document = yyjson_mut_doc_new(NULL);
+    expect(document != NULL, "JSON", "cannot allocate document");
+    return document;
+}
+
+static void wrap_json(yyjson_mut_doc *document, yyjson_mut_val *value)
+{
+    yyjson_mut_val *message = yyjson_mut_obj(document);
+    yyjson_mut_val *data = yyjson_mut_obj(document);
+    yyjson_mut_val *descrips = yyjson_mut_arr(document);
+    yyjson_mut_val *ingests = yyjson_mut_obj(document);
+    expect(value && yyjson_mut_arr_add_str(document, descrips, "type-test") &&
+           yyjson_mut_obj_add_val(document, ingests, "v", value) &&
+           yyjson_mut_obj_add_val(document, data, "descrips", descrips) &&
+           yyjson_mut_obj_add_val(document, data, "ingests", ingests) &&
+           yyjson_mut_obj_add_val(document, message, "data", data),
+           "JSON", "cannot construct message");
+    yyjson_mut_doc_set_root(document, message);
 }
 
 /* Create input independently with libPlasma's file writer, not wire.c. */
-static struct json_object *native_annotation(bslaw value)
+static yyjson_mut_val *native_annotation(yyjson_mut_doc *document, bslaw value)
 {
     FILE *file = tmpfile();
     expect(file != NULL, "binary fixture", "cannot create temporary file");
@@ -72,21 +81,22 @@ static struct json_object *native_annotation(bslaw value)
         snprintf(hex + i * 2, 3, "%02x", (unsigned)byte);
     }
     expect(fclose(file) == 0, "binary fixture", "cannot close file");
-    struct json_object *annotation = json_object_new_object();
-    json_object_object_add(annotation, "type", json_object_new_string("slaw"));
-    json_object_object_add(annotation, "value", json_object_new_string(hex));
+    yyjson_mut_val *annotation = yyjson_mut_obj(document);
+    expect(yyjson_mut_obj_add_str(document, annotation, "type", "slaw") &&
+           yyjson_mut_obj_add_strcpy(document, annotation, "value", hex),
+           "binary fixture", "cannot construct annotation");
     free(hex);
     return annotation;
 }
 
 static void compare_message(const char *name, bprotein expected,
-                            struct json_object *message)
+                            yyjson_mut_doc *message)
 {
-    struct json_object *received = through_json(message);
-    protein actual = import_message(received);
+    yyjson_doc *received = through_json(message);
+    protein actual = import_message(yyjson_doc_get_root(received));
     expect(proteins_equal(expected, actual), name, "Plasma type or value changed");
     protein_free(actual);
-    json_object_put(received);
+    yyjson_doc_free(received);
     checks++;
 }
 
@@ -97,21 +107,22 @@ static void native_case(const char *name, slaw value)
     expect(expected != NULL, name, "cannot construct Protein");
 
     /* Plasma -> JSON text -> Plasma, with exact native equality. */
-    struct json_object *exported = export_protein(expected);
+    yyjson_mut_doc *exported = export_protein(expected);
     compare_message(name, expected, exported);
-    json_object_put(exported);
+    yyjson_mut_doc_free(exported);
 
     /* Independently authored binary JSON -> Plasma -> JSON -> Plasma. */
-    struct json_object *input = wrap_json(native_annotation(value));
-    struct json_object *received = through_json(input);
-    protein imported = import_message(received);
+    yyjson_mut_doc *input = new_document();
+    wrap_json(input, native_annotation(input, value));
+    yyjson_doc *received = through_json(input);
+    protein imported = import_message(yyjson_doc_get_root(received));
     expect(proteins_equal(expected, imported), name, "binary JSON imported the wrong type or value");
     exported = export_protein(imported);
     compare_message(name, expected, exported);
-    json_object_put(exported);
+    yyjson_mut_doc_free(exported);
     protein_free(imported);
-    json_object_put(received);
-    json_object_put(input);
+    yyjson_doc_free(received);
+    yyjson_mut_doc_free(input);
     protein_free(expected);
     slaw_free(value);
 }
@@ -119,15 +130,16 @@ static void native_case(const char *name, slaw value)
 static void binary_case(const char *name, slaw value)
 {
     protein source = wrap_native(value);
-    struct json_object *message = export_protein(source);
-    struct json_object *data, *ingests, *encoded;
-    json_object_object_get_ex(message, "data", &data);
-    json_object_object_get_ex(data, "ingests", &ingests);
-    expect(json_object_object_get_ex(ingests, "v", &encoded), name, "missing exported value");
-    struct json_object *expected = native_annotation(value);
-    expect(json_object_equal(encoded, expected), name, "binary JSON differs from libPlasma's file format");
-    json_object_put(expected);
-    json_object_put(message);
+    yyjson_mut_doc *message = export_protein(source);
+    yyjson_mut_val *data = yyjson_mut_obj_get(yyjson_mut_doc_get_root(message), "data");
+    yyjson_mut_val *ingests = yyjson_mut_obj_get(data, "ingests");
+    yyjson_mut_val *encoded = yyjson_mut_obj_get(ingests, "v");
+    expect(encoded != NULL, name, "missing exported value");
+    yyjson_mut_doc *reference = new_document();
+    yyjson_mut_val *expected = native_annotation(reference, value);
+    expect(yyjson_mut_equals(encoded, expected), name, "binary JSON differs from libPlasma's file format");
+    yyjson_mut_doc_free(reference);
+    yyjson_mut_doc_free(message);
     protein_free(source);
     checks++;
     native_case(name, value);
@@ -136,14 +148,19 @@ static void binary_case(const char *name, slaw value)
 static void json_case(const char *name, const char *text, slaw value)
 {
     protein expected = wrap_native(value);
-    struct json_object *input = wrap_json(parse(text));
-    protein actual = import_message(input);
+    yyjson_doc *example = parse(text);
+    yyjson_mut_doc *input = new_document();
+    wrap_json(input, yyjson_val_mut_copy(input, yyjson_doc_get_root(example)));
+    yyjson_doc_free(example);
+    yyjson_doc *received = through_json(input);
+    protein actual = import_message(yyjson_doc_get_root(received));
     expect(proteins_equal(expected, actual), name, "JSON imported the wrong type or value");
     checks++;
-    struct json_object *exported = export_protein(actual);
+    yyjson_mut_doc *exported = export_protein(actual);
     compare_message(name, expected, exported);
-    json_object_put(exported);
-    json_object_put(input);
+    yyjson_mut_doc_free(exported);
+    yyjson_doc_free(received);
+    yyjson_mut_doc_free(input);
     protein_free(actual);
     protein_free(expected);
     slaw_free(value);
@@ -151,15 +168,17 @@ static void json_case(const char *name, const char *text, slaw value)
 
 static void protein_case(const char *name, protein value)
 {
-    struct json_object *exported = export_protein(value);
+    yyjson_mut_doc *exported = export_protein(value);
     compare_message(name, value, exported);
-    json_object_put(exported);
-    struct json_object *input = parse("{\"data\":{}}");
-    struct json_object *data;
-    json_object_object_get_ex(input, "data", &data);
-    json_object_object_add(data, "protein", native_annotation(value));
+    yyjson_mut_doc_free(exported);
+    yyjson_mut_doc *input = new_document();
+    yyjson_mut_val *data = yyjson_mut_obj(input);
+    yyjson_mut_val *message = yyjson_mut_obj(input);
+    expect(yyjson_mut_obj_add_val(input, data, "protein", native_annotation(input, value)) &&
+           yyjson_mut_obj_add_val(input, message, "data", data), name, "cannot construct message");
+    yyjson_mut_doc_set_root(input, message);
     compare_message(name, value, input);
-    json_object_put(input);
+    yyjson_mut_doc_free(input);
     protein_free(value);
 }
 
@@ -271,23 +290,64 @@ static void special_values(void)
     protein_case("out-of-line rude data", protein_from_llr(NULL, NULL, bytes, sizeof bytes));
 }
 
-static void rejected_input(const char *name, const char *text)
+static void rejected_bytes(const char *name, const char *text, size_t length)
 {
-    struct json_object *input = parse(text);
     pid_t child = fork();
     expect(child >= 0, name, "cannot fork");
     if (child == 0) {
         if (!freopen("/dev/null", "w", stderr))
             _Exit(2);
-        protein p = import_message(input);
+        yyjson_doc *input = read_json(text, length);
+        protein p = import_message(yyjson_doc_get_root(input));
+        yyjson_doc_free(input);
         protein_free(p);
         _Exit(0);
     }
     int status;
     expect(waitpid(child, &status, 0) == child, name, "cannot wait for child");
     expect(WIFEXITED(status) && WEXITSTATUS(status) == 1, name, "invalid input was not rejected cleanly");
-    json_object_put(input);
     checks++;
+}
+
+static void rejected_input(const char *name, const char *text)
+{
+    rejected_bytes(name, text, strlen(text));
+}
+
+static void document_ownership(void)
+{
+    slaw value = slaw_map_inline_cf("owned-key", slaw_string("owned-value"), NULL);
+    protein source = wrap_native(value);
+    slaw_free(value);
+    protein expected = protein_dup(source);
+    yyjson_mut_doc *message = export_protein(source);
+    protein_free(source);
+    compare_message("exported document owns its strings", expected, message);
+    yyjson_mut_doc_free(message);
+    protein_free(expected);
+}
+
+static void parser_cases(void)
+{
+    json_case("JSON NUL string", "\"a\\u0000b\"", slaw_string_from_substring("a\0b", 3));
+    json_case("JSON NUL key", "{\"a\\u0000b\":9}",
+              slaw_map_inline_ff(slaw_string_from_substring("a\0b", 3), slaw_int64(9), NULL));
+    json_case("JSON surrogate pair", "\"\\ud83d\\ude00\"", slaw_string("\xf0\x9f\x98\x80"));
+    json_case("literal NUL escape text", "\"\\\\u0000\"", slaw_string("\\u0000"));
+    native_case("float32 smallest subnormal", slaw_float32(FLT_TRUE_MIN));
+    native_case("float64 smallest subnormal", slaw_float64(DBL_TRUE_MIN));
+    rejected_input("oversized integer literal", "{\"data\":{\"ingests\":{\"v\":18446744073709551616}}}");
+    rejected_input("duplicate data", "{\"data\":{},\"data\":{}}");
+    rejected_input("duplicate contents", "{\"data\":{\"ingests\":{},\"ingests\":{}}}");
+    rejected_input("duplicate map key", "{\"data\":{\"ingests\":{\"v\":{\"a\":1,\"a\":2}}}}");
+    rejected_input("NUL in field name", "{\"data\":{\"descrips\\u0000extra\":[]}}");
+    rejected_input("NUL in annotation type", "{\"data\":{\"ingests\":{\"v\":{\"type\":\"unt8\\u0000extra\",\"value\":5}}}}");
+    rejected_input("invalid UTF-8 JSON", "{\"data\":{\"ingests\":{\"v\":\"\xff\"}}}");
+    rejected_input("invalid surrogate", "{\"data\":{\"ingests\":{\"v\":\"\\ud800\"}}}");
+    rejected_input("two messages on one line", "{\"data\":{}} {\"data\":{}}");
+    const char raw_nul[] = "{\"data\":{}}\0";
+    rejected_bytes("raw NUL in JSON", raw_nul, sizeof raw_nul - 1);
+    document_ownership();
 }
 
 int main(void)
@@ -295,6 +355,7 @@ int main(void)
     all_numeric_types();
     plain_json_and_annotations();
     special_values();
+    parser_cases();
     rejected_input("unt8 overflow", "{\"data\":{\"ingests\":{\"v\":{\"type\":\"unt8\",\"value\":256}}}}");
     rejected_input("unsigned negative", "{\"data\":{\"ingests\":{\"v\":{\"type\":\"unt8\",\"value\":-1}}}}");
     rejected_input("int64 overflow", "{\"data\":{\"ingests\":{\"v\":{\"type\":\"int64\",\"value\":\"9223372036854775808\"}}}}");

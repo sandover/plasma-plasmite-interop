@@ -33,19 +33,18 @@ You need:
 - Plasma's C libraries, **libPlasma** and **libLoam**. Follow the
   [Plasma build instructions](https://github.com/plasma-hamper/plasma#building-the-thing);
   you can disable its C++ libraries.
-- The **json-c** library and development headers.
 - A POSIX system with a C11 compiler, Make, Git, and pkg-config.
 
-Install json-c and pkg-config on macOS:
+Install pkg-config on macOS:
 
 ```bash
-brew install json-c pkgconf
+brew install pkgconf
 ```
 
 On Debian or Ubuntu:
 
 ```bash
-sudo apt install build-essential git pkg-config libjson-c-dev
+sudo apt install build-essential git pkg-config
 ```
 
 After installing the Plasma C libraries, build Plasticine:
@@ -71,8 +70,9 @@ If pkg-config cannot find Plasma in a custom installation:
 PKG_CONFIG_PATH=/path/to/plasma/lib/pkgconfig make
 ```
 
-The build links libPlasma, libLoam, and json-c. It does not need Plasmite's
-C library.
+The build links libPlasma and libLoam. Plasticine includes
+[yyjson 0.12.0](vendor/yyjson/README.md) for JSON and compiles it directly.
+It does not need Plasmite's C library.
 
 ## Message format
 
@@ -196,8 +196,8 @@ pipeline.
 | `to` rejects a message | Check that `data` contains descriptors and contents, or a whole Protein, and keep one complete JSON message per line. |
 
 `to` rejects unknown annotations, non-finite JSON numbers, invalid JSON,
-and NUL escapes. Carry NUL bytes inside binary Slaw; json-c otherwise
-truncates object keys at NUL.
+and duplicate fields in imported data. It preserves NUL characters in JSON
+strings and map keys.
 
 [Report an issue](https://github.com/sandover/plasma-plasmite-interop/issues)
 with the command, error output, Plasmite version, and an example message.
