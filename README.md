@@ -8,25 +8,21 @@ It preserves Plasma's types, including binary values.
 
 ## Usage
 
-Relay live messages from a Plasma pool into a Plasmite pool:
+Relay live messages from a Plasma pool into a Plasmite pool (assuming all the pools already exist):
 
 ```bash
-# Create the receiving pool and start the bridge.
-plasmite pool create relay
-plasticine from plasma-source | plasmite feed relay
+plasticine from plasma-pool | plasmite feed plasmite-pool
 ```
 
 The reverse...
 
 ```bash
-# Create the receiving pool and start the bridge.
-p-create plasma-relay
-plasmite follow plasmite-source | plasticine to plasma-relay
+plasmite follow plasmite-pool | plasticine to plasma-pool
 ```
 
 
 - `from` waits for new Plasma messages and writes them to stdout. (It acts like plasma `peek`.)
-- `to` reads Plasticine-format JSON messages from stdin and deposits them in a Plasma pool as they arrive (It acts like plasma `poke`.) Neither will create a pool.
+- `to` reads Plasticine-format JSON messages from stdin and deposits them in a Plasma pool as they arrive (It acts like plasma `poke`.) 
 
 
 ## Installation
