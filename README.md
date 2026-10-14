@@ -27,6 +27,40 @@ plasmite follow plasmite-pool | plasticine to plasma-pool
 
 ## Installation
 
+Use Plasmite **1.2.1 or newer** for the commands in this README.
+
+### Download
+
+Download the archive for your system from
+[GitHub Releases](https://github.com/sandover/plasma-plasmite-interop/releases).
+
+| Archive | System |
+| --- | --- |
+| `plasticine-macos-arm64.tar.gz` | Apple Silicon Mac, macOS 13 or newer |
+| `plasticine-macos-x86_64.tar.gz` | Intel Mac, macOS 13 or newer |
+| `plasticine-linux-x86_64.tar.gz` | x86-64 Linux with glibc 2.35 or newer, such as Ubuntu 22.04 |
+| `plasticine-linux-arm64.tar.gz` | ARM64 Linux with glibc 2.35 or newer, including 64-bit Raspberry Pi OS Bookworm |
+
+For example, after downloading the Raspberry Pi archive:
+
+```bash
+tar -xzf plasticine-linux-arm64.tar.gz
+mkdir -p ~/.local/bin
+install -m 755 plasticine-linux-arm64/plasticine ~/.local/bin/plasticine
+plasticine --help
+```
+
+Keep `~/.local/bin` on your PATH. Each download includes Plasma, OpenSSL,
+and the JSON and YAML libraries inside the executable. You do not need
+separate library installations or build tools. The ARM64 download needs a
+64-bit operating system; it does not run on a Pico or a 32-bit Pi installation.
+
+The Mac executables use an ad hoc signature, without Apple notarization.
+macOS may require you to allow the executable in Privacy & Security.
+Each archive has a `.sha256` file for checking the download.
+
+### Build from source
+
 You need:
 
 - Plasmite **1.2.1 or newer**, for the CLI commands in these examples.
@@ -222,3 +256,23 @@ pools or extra test framework.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Building releases
+
+The release workflow builds and tests all four downloads. To check it
+without publishing a release, run **Prebuilt executables** from the
+repository's Actions page; download its build artifacts after it passes.
+Push a version tag, such as `v0.1.0`, to build and publish a GitHub release.
+Publication waits for every build to pass.
+
+The workflow uses `scripts/build-release.sh`, which also runs locally:
+
+```bash
+bash scripts/build-release.sh dist
+```
+
+It needs CMake, Make, a C/C++ compiler, pkg-config, Perl, curl, and an internet
+connection. It builds fixed dependency versions in a temporary
+directory, checks all types, checks runtime library requirements, and
+packages the executable and license notices. Update the dependency commits
+in that script when adopting newer versions.
