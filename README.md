@@ -206,6 +206,23 @@ truncates object keys at NUL.
 [Report an issue](https://github.com/sandover/plasma-plasmite-interop/issues)
 with the command, error output, Plasmite version, and an example message.
 
+## Testing
+
+```bash
+make test
+```
+
+The C tests check both conversion directions for all 120 numeric value
+kinds and their 120 array kinds, including empty arrays. They also check
+booleans, nil, strings, lists, maps, cons cells, and Proteins, plus large
+integers, special float values, map order, unusual strings, binary payloads,
+and rejected inputs.
+
+The tests compare native Plasma values and types, check independently
+written JSON examples, and use libPlasma's file writer as the reference for
+binary annotations. They need the build dependencies above, with no running
+pools or extra test framework.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
