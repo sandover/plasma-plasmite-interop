@@ -1,25 +1,14 @@
 # Plasticine
 
 Plasticine bridges live message streams between
-[Plasma](https://github.com/plasma-hamper/plasma) and
-[Plasmite](https://github.com/sandover/plasmite).
-It reads and writes Plasma Proteins through libPlasma and exchanges JSON
-through ordinary Unix pipes. It preserves Plasma's types, including values
-that need Plasma's native binary format.
+[Plasma](https://github.com/plasma-hamper/plasma) pools and
+[Plasmite](https://github.com/sandover/plasmite) pools.
+
+It preserves Plasma's types, including binary values.
 
 ## Usage
 
-```bash
-plasticine from POOL
-plasticine to POOL
-```
-
-`from` waits for new Plasma messages and writes them to stdout.
-`to` reads Plasticine-format JSON messages from stdin and deposits them in
-Plasma. Use a local Plasma pool name or a pool URI supported by your
-libPlasma build. Create the destination pool before starting a bridge.
-
-To relay an existing Plasma source into Plasmite:
+Relay live messages from a Plasma pool into a Plasmite pool:
 
 ```bash
 # Create the receiving pool and start the bridge.
@@ -27,7 +16,7 @@ plasmite pool create relay
 plasticine from plasma-source | plasmite feed relay
 ```
 
-To relay an existing Plasmite source into Plasma:
+The reverse...
 
 ```bash
 # Create the receiving pool and start the bridge.
@@ -35,9 +24,10 @@ p-create plasma-relay
 plasmite follow plasmite-source | plasticine to plasma-relay
 ```
 
-Start the bridge before publishing messages. Both examples watch new
-messages from the time they connect. Press Ctrl-C to stop a live bridge.
-The two examples show separate, one-way bridges.
+
+- `from` waits for new Plasma messages and writes them to stdout. (It acts like plasma `peek`.)
+- `to` reads Plasticine-format JSON messages from stdin and deposits them in a Plasma pool as they arrive (It acts like plasma `poke`.) Neither will create a pool.
+
 
 ## Installation
 
