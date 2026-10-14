@@ -1,80 +1,137 @@
 # Plasticine
 
-A small C tool for bridging live messages between
+Plasticine bridges live message streams between
 [Plasma](https://github.com/plasma-hamper/plasma) and
 [Plasmite](https://github.com/sandover/plasmite).
+It reads and writes Plasma Proteins through libPlasma and exchanges JSON
+through ordinary Unix pipes. It preserves Plasma's types, including values
+that need Plasma's native binary format.
 
-Uses libPlasma to read, construct, and deposit Proteins, and json-c to
-read and write JSON. 
-
-Requires Plasmite 1.2 or newer.
-
-## Build
-
-Install Plasma's C libraries, json-c, a C compiler, Make, and pkg-config.
-Then:
+## Usage
 
 ```bash
-make
+plasticine from POOL
+plasticine to POOL
 ```
 
-For json-c and pkg-config on macOS: `brew install json-c pkgconf`.
-On Debian/Ubuntu: `sudo apt install build-essential pkg-config libjson-c-dev`.
-Follow [Plasma's build instructions](https://github.com/plasma-hamper/plasma#building-the-thing)
-for libPlasma; its C++ libraries are optional.
+`from` waits for new Plasma messages and writes them to stdout.
+`to` reads Plasticine-format JSON messages from stdin and deposits them in
+Plasma. Use a local Plasma pool name or a pool URI supported by your
+libPlasma build. Create the destination pool before starting a bridge.
 
-If Plasma lives outside the usual search paths:
+To relay an existing Plasma source into Plasmite:
+
+```bash
+# Create the receiving pool and start the bridge.
+plasmite pool create relay
+plasticine from plasma-source | plasmite feed relay
+```
+
+To relay an existing Plasmite source into Plasma:
+
+```bash
+# Create the receiving pool and start the bridge.
+p-create plasma-relay
+plasmite follow plasmite-source | plasticine to plasma-relay
+```
+
+Start the bridge before publishing messages. Both examples watch new
+messages from the time they connect. Press Ctrl-C to stop a live bridge.
+The two examples show separate, one-way bridges.
+
+## Installation
+
+You need:
+
+- Plasmite **1.2.1 or newer**, for the CLI commands in these examples.
+- Plasma's C libraries, **libPlasma** and **libLoam**. Follow the
+  [Plasma build instructions](https://github.com/plasma-hamper/plasma#building-the-thing);
+  you can disable its C++ libraries.
+- The **json-c** library and development headers.
+- A POSIX system with a C11 compiler, Make, Git, and pkg-config.
+
+Install json-c and pkg-config on macOS:
+
+```bash
+brew install json-c pkgconf
+```
+
+On Debian or Ubuntu:
+
+```bash
+sudo apt install build-essential git pkg-config libjson-c-dev
+```
+
+After installing the Plasma C libraries, build Plasticine:
+
+```bash
+git clone https://github.com/sandover/plasma-plasmite-interop.git
+cd plasma-plasmite-interop
+make
+./plasticine --help
+```
+
+Run `./plasticine` from this directory, or copy the executable into a
+directory on your PATH. For example, if `~/.local/bin` is on your PATH:
+
+```bash
+mkdir -p ~/.local/bin
+install -m 755 plasticine ~/.local/bin/plasticine
+```
+
+If pkg-config cannot find Plasma in a custom installation:
 
 ```bash
 PKG_CONFIG_PATH=/path/to/plasma/lib/pkgconfig make
 ```
 
-## Pipes
+The build links libPlasma, libLoam, and json-c. It does not need Plasmite's
+C library.
 
-To relay a Plasma message stream into a Plasmite pool:
+## Message format
 
-```bash
-plasmite pool create plasmite-destination
-plasticine from plasma-source | plasmite feed plasmite-destination
-```
+Plasticine writes one complete Plasmite JSON message per line and flushes
+each line. `to` accepts that same format. Keep each input message on one
+line; when using jq in a bridge, use `jq -c`.
 
-To relay a Plasmite message stream into a Plasma pool:
-
-```bash
-plasmite follow plasmite-source | plasticine to plasma-destination
-```
-
-`from` waits for new Proteins and writes one complete Plasmite JSON message
-per line, flushing each line. `to` reads one message per line from stdin
-and deposits each Protein in Plasma. It writes no stdout. Errors go to stderr.
-Each destination pool assigns its own position and time.
-
-Avoid connecting the same two pools in a loop: Plasticine does not deduplicate
-messages or suppress echoes.
-
-## What the JSON means
-
-A bridge message keeps Plasma's descriptors and contents inside `data`:
+Here is a message with its fields expanded for reading:
 
 ```json
-{"meta":{"tags":[]},"data":{"descrips":["example"],"ingests":{"foo":32,"bar":{"type":"unt8","value":5}}}}
+{
+  "meta": {"tags": []},
+  "data": {
+    "descrips": ["example"],
+    "ingests": {
+      "bar": {"type": "unt8", "value": 5},
+      "foo": 32
+    }
+  }
+}
 ```
 
-Here `foo` becomes `slaw_int64(32)` and `bar` becomes `slaw_unt8(5)`.
-You can create that message in Plasmite and send it to Plasma:
+`data.descrips` holds Plasma's descriptors; `data.ingests` holds its
+contents. Descriptors must decode to a Plasma list, and contents must
+decode to a list or map. Omit either field to leave it absent.
+`to` rejects other fields inside `data`, apart from the whole-Protein
+form below. It expects this format rather than arbitrary application JSON.
+
+To create a message with Plasmite's default feed syntax and send it to Plasma:
 
 ```bash
-plasmite feed relay '{"meta":{"tags":[]},"data":{"descrips":["example"],"ingests":{"foo":32,"bar":{"type":"unt8","value":5}}}}' |
-  plasticine to plasma-destination
+plasmite feed events '{"descrips":["example"],"ingests":{"bar":{"type":"unt8","value":5},"foo":32}}' |
+  plasticine to plasma-relay
 ```
 
-`plasticine to` expects this bridge shape. It rejects other fields in `data`.
-It ignores Plasmite's tags, position, and time; Plasma descriptors live in
-`data.descrips`. An omitted `descrips` or `ingests` means an absent Plasma
-field. Present descriptors must decode to a list; present contents must
-decode to a list or map. JSON null represents Slaw nil inside those values.
+Use an existing `events` pool and `plasma-relay` pool for this example.
+`foo` becomes `slaw_int64(32)` and `bar` becomes `slaw_unt8(5)`.
 
-| JSON | Plasma |
+Plasticine emits empty Plasmite tag lists. When importing, it ignores
+Plasmite's tags, sequence, and timestamp. Plasma descriptors stay in
+`data.descrips`; each destination pool assigns a new sequence and time.
+
+## Type preservation
+
+| JSON value | Plasma type |
 | --- | --- |
 | null, boolean, string | nil, boolean, string |
 | array | list |
@@ -83,58 +140,82 @@ decode to a list or map. JSON null represents Slaw nil inside those values.
 | number with a decimal point or exponent | float64 |
 | `{"type":"unt8","value":5}` | unt8 |
 
-Annotations support `int8`, `int16`, `int32`, `int64`, `unt8`, `unt16`,
-`unt32`, `unt64`, `float32`, and `float64`. Integer annotations also accept
-decimal strings. Integers outside JavaScript's exact integer range
-(-9007199254740991 through 9007199254740991) require a string annotation,
-for example:
+An object containing exactly `type` and `value` specifies a Plasma type.
+Number annotations accept `int8`, `int16`, `int32`, `int64`, `unt8`,
+`unt16`, `unt32`, `unt64`, `float32`, and `float64`. Plasticine checks
+integer ranges before calling Plasma's constructors. Float annotations
+accept finite JSON numbers; float32 follows C's rounding from a double.
+
+Integers outside -9007199254740991 through 9007199254740991 require a
+decimal string in a type annotation. This keeps them exact when JSON passes
+through programs that use JavaScript's number representation:
 
 ```json
 {"type":"unt64","value":"18446744073709551615"}
 ```
 
-`plasticine to` checks integer ranges before calling Plasma's constructors.
-Float annotations accept JSON numbers; float32 follows C's rounding when
-converting from a double. `plasticine from` preserves scalar number types using
-annotations where the plain JSON defaults would change the type.
-
-## All Plasma types
-
-An object containing exactly `type` and `value` means an annotation.
-For every other Plasma type, `plasticine from` uses:
+For other types, Plasticine uses a hex-encoded Plasma binary file:
 
 ```json
 {"type":"slaw","value":"...hex bytes..."}
 ```
 
-The hex contains a complete single-value Plasma binary file, including
-Plasma's version and byte-order header. libPlasma writes and reads it.
-This covers vectors, multivectors, numeric arrays, complex numbers, cons
-cells, nested Proteins, maps with arbitrary keys, NaN, infinity, strings
-with NUL bytes or invalid UTF-8, and deeply nested values. A literal map
-with exactly `type` and `value` also uses this form, so it keeps its meaning.
-Plasmite sorts JSON object keys. A Plasma map whose entries follow a
-different order uses binary Slaw to preserve that order.
+libPlasma writes and reads the file, including its version and byte-order
+header. This carries every type the linked libPlasma can write and read:
+vectors, multivectors, numeric arrays, complex numbers, cons cells, nested
+Proteins, arbitrary map keys, NaN, infinity, and strings with NUL bytes or
+invalid UTF-8. Plasticine also uses binary Slaw for deeply nested values,
+maps whose entry order JSON would change, and literal maps with exactly
+`type` and `value` as keys.
 
-A Protein with rude data or a nonstandard layout travels as a whole:
+A Protein with a binary payload (Plasma's "rude data") or a nonstandard
+layout travels as a whole:
 
 ```json
 {"meta":{"tags":[]},"data":{"protein":{"type":"slaw","value":"...hex bytes..."}}}
 ```
 
-`data.protein` must contain a Protein and must be the only field in `data`.
-You can also place a binary Slaw annotation wherever a value belongs in
-`descrips` or `ingests`. This carries every type the linked libPlasma can
-write and read. The readable JSON form preserves values and types; the
-binary form delegates preservation to Plasma's own format.
+`data.protein` must be the only field in `data` and must contain a Protein.
+You can also use a binary Slaw annotation for any value inside `descrips`
+or `ingests`. Keep these annotations intact when editing a stream.
 
-## Sketch boundaries
+## Delivery and errors
 
-`plasticine to` rejects unknown annotations, out-of-range numbers, invalid
-JSON, and NUL escapes in JSON strings. Use binary Slaw for NUL bytes;
-json-c would otherwise truncate object keys. Plasticine stops at the first
-error; earlier deposits remain. It has no retry service or test suite.
+`from` keeps waiting for new messages. `to` exits successfully when stdin
+closes. Errors go to stderr; a reported fatal error exits with status 1.
+Successful completion and `--help` exit with status 0.
 
-The source stays small: one command file, a readable JSON converter, a
-binary Slaw helper, and a Makefile. The intended next step is to try it
-together and agree on the conversion rules.
+Plasticine stops at the first error. Earlier deposits remain in the
+destination pool. It keeps no saved read position and performs no retries;
+restarting a live bridge begins with new messages. Messages that arrive
+while the bridge is stopped will not replay on restart.
+
+Use separate source and destination streams for each direction. Connecting
+the same two pools in both directions creates a feedback loop: Plasticine
+does not suppress repeated messages.
+
+Each message must fit its destination pool. Hex uses two characters per
+binary byte, so it increases message size. Plasticine's stdin and stdout
+format is JSON; use Plasmite's default JSON output when piping into `to`.
+
+In Bash scripts, use `set -o pipefail` to catch a failure anywhere in a
+pipeline.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| pkg-config cannot find libPlasma or libLoam | Install both C libraries and set `PKG_CONFIG_PATH` to their `lib/pkgconfig` directory. |
+| `from` produces no output | It waits for new messages. Publish after starting the bridge. |
+| `to` rejects a message | Check that `data` contains descriptors and contents, or a whole Protein, and keep one complete JSON message per line. |
+
+`to` rejects unknown annotations, non-finite JSON numbers, invalid JSON,
+and NUL escapes. Carry NUL bytes inside binary Slaw; json-c otherwise
+truncates object keys at NUL.
+
+[Report an issue](https://github.com/sandover/plasma-plasmite-interop/issues)
+with the command, error output, Plasmite version, and an example message.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
